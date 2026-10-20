@@ -27,6 +27,12 @@ def generate_launch_description():
         choices=['physx', 'newton'],
     )
 
+    rtf = LaunchArgument(
+        name='rtf',
+        default_value='0',
+        description='Target Real-Time Factor (0 = unthrottled, the default; 1.0 = real time)',
+    )
+
     viewport = {
         key: LaunchArgument(name=f'viewport.{key}', default_value=default)
         for key, default in (('preset', 'photoreal'), ('resolution', ''), ('scale', ''), ('dlss', ''), ('lighting', ''), ('overlays', ''), ('ceilings', ''))
@@ -51,6 +57,7 @@ def generate_launch_description():
                 '--log-level', logger.substitution,
                 '--headless', headless.substitution,
                 ['physics:=', physics.substitution],
+                ['rtf:=', rtf.substitution],
                 *([f'viewport.{key}:=', arg.substitution] for key, arg in viewport.items()),
             ],
             output='screen',

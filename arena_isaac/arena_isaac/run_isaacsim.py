@@ -54,6 +54,26 @@ VIEWPORT_ARGS = {
     "lighting": _arg_str("--viewport.lighting", ""),
     "overlays": _arg_str("--viewport.overlays", ""),
 }
+
+def _arg_float(name: str, default: float) -> float:
+    if name in sys.argv:
+        i = sys.argv.index(name)
+        if i + 1 < len(sys.argv):
+            try:
+                return float(sys.argv[i + 1])
+            except ValueError:
+                pass
+    prefix = f"{name.lstrip('-')}:="
+    for arg in sys.argv:
+        if arg.startswith(prefix):
+            try:
+                return float(arg[len(prefix):])
+            except ValueError:
+                pass
+    return default
+
+TARGET_RTF = _arg_float("--rtf", float(os.environ.get("ARENA_SIM_RTF", "0")))
+
 _CEILING_MODES = {"": None, "auto": None, "on": True, "off": False}
 CEILINGS = _arg_str("--viewport.ceilings", "")
 if CEILINGS not in _CEILING_MODES:
@@ -453,6 +473,11 @@ class IsaacController(rclpy.node.Node):
         return self._last_clock
 
     @property
+    def is_free_running(self) -> bool:
+        """True when the sim is free-running (unpaused and not mid-stepped-frame)."""
+        return self._running and self._pending_steps == 0
+
+    @property
     def running(self) -> bool:
         return self._pending_steps > 0 or self._running
 
@@ -522,6 +547,7 @@ def main(args: list[str] | None = None):
     was_playing: bool = False
     newton_bounce_hold: int = 0
     last_step_at: float = 0.0
+    next_wall_step: float = time.monotonic()
     try:
         while simulation_app.is_running():
             stepped_this_iteration: bool = False
@@ -566,6 +592,7 @@ def main(args: list[str] | None = None):
                             rebuild_graphs()
                     world.play()
                     was_playing = True
+                    next_wall_step = time.monotonic()
                     if restore_time > 0.0:
                         _newton_restore_sim_time(restore_time)
                     world.step(render=True)
@@ -589,6 +616,17 @@ def main(args: list[str] | None = None):
                     controller.consume_step()
                     last_step_at = time.monotonic()
                     stepped_this_iteration = True
+                    if controller.is_free_running and TARGET_RTF > 0.0:
+                        target_dt = PHYSICS_DT / TARGET_RTF
+                        now = time.monotonic()
+                        sleep_s = next_wall_step - now
+                        if sleep_s > 0.001:
+                            time.sleep(sleep_s)
+                        now = time.monotonic()
+                        if now > next_wall_step + 0.1:
+                            next_wall_step = now + target_dt
+                        else:
+                            next_wall_step += target_dt
             elif was_playing and time.monotonic() - last_step_at < _IDLE_GRACE_S and not (viewport is not None and PHYSICS_ENGINE != "newton" and viewport.capture_due):
                 controller.repeat_clock()
                 time.sleep(0.002)
